@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Pedidos Gráfica</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#4f2aa8">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<style>
+:root{--primary:#4f2aa8;--primary2:#6d43d8;--bg:#f4f2fa;--text:#222;--muted:#777;--card:#fff;--border:#e4e0ef}
+*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--text)}
+header{background:linear-gradient(135deg,var(--primary),var(--primary2));color:#fff;padding:20px 18px 24px;position:sticky;top:0;z-index:2}
+header h1{margin:0;font-size:22px}header p{margin:6px 0 0;font-size:13px;opacity:.85}
+main{max-width:720px;margin:auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:0 3px 12px #24134b0b}
+h2{font-size:18px;margin:0 0 14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label{display:block;font-size:13px;font-weight:700;margin:10px 0 6px}
+input,select,textarea{width:100%;padding:12px;border:1px solid #d8d2e7;border-radius:10px;font-size:15px;background:#fff}
+textarea{min-height:90px;resize:vertical}.full{grid-column:1/-1}
+button{border:0;border-radius:11px;padding:12px 15px;font-weight:700;cursor:pointer;font-size:14px}
+.primary{background:var(--primary);color:#fff}.secondary{background:#eee9fb;color:var(--primary)}.danger{background:#ffe8e8;color:#a40000}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.hidden{display:none}.small{font-size:12px;color:var(--muted)}
+.order{border:1px solid var(--border);border-radius:12px;padding:13px;margin-top:10px;background:#fff}
+.order-top{display:flex;justify-content:space-between;gap:8px}.pill{padding:5px 8px;border-radius:20px;font-size:11px;font-weight:700;background:#fff0bd}
+.order h3{margin:4px 0;font-size:15px}.order p{margin:4px 0;font-size:13px;color:#555}
+.thumb{width:70px;height:70px;object-fit:cover;border-radius:8px;margin:5px 5px 0 0;border:1px solid var(--border)}
+.empty{text-align:center;color:var(--muted);padding:20px}
+@media(max-width:480px){.grid{grid-template-columns:1fr}.full{grid-column:auto}}
+</style>
+</head>
+<body>
+<header><h1>Pedidos Gráfica</h1><p>App local · funciona sin internet</p></header>
+<main>
+<section class="card">
+<h2>Nuevo pedido</h2>
+<form id="orderForm">
+<div class="grid">
+<div class="full"><label>Producto</label><select id="product" required>
+<option value="">Seleccionar trabajo...</option>
+<option>Tarjetas</option><option>Etiquetas</option><option>Talonario Full Color</option><option>Talonario Blanco y Negro</option><option>Trabajo especial</option>
+</select></div>
+<div><label>Medida</label><select id="size" required><option value="">Seleccionar...</option></select></div>
+<div><label>Cantidad</label><select id="quantity" required><option value="">Seleccionar...</option></select></div>
+<div><label>Precio ($)</label><input id="price" type="number" min="0" step="0.01" placeholder="0"></div>
+<div><label>Nombre</label><input id="name" required placeholder="Nombre del cliente"></div>
+<div class="full"><label>Descripción</label><textarea id="description" placeholder="Colores, diseño, papel, terminación, etc."></textarea></div>
+<div class="full"><label>Imágenes</label><input id="images" type="file" accept="image/*" multiple><div id="preview"></div></div>
+<div><label>WhatsApp</label><input id="whatsapp" placeholder="11 1234 5678"></div>
+<div><label>Redes sociales</label><input id="social" placeholder="@usuario / Instagram"></div>
+<div class="full"><label>Ubicación</label><input id="location" placeholder="Feria, pasillo, puesto, fila, calle, local..."></div>
+</div>
+<div class="actions"><button class="primary" type="submit">Guardar pedido</button><button class="secondary" type="button" id="clearBtn">Limpiar</button></div>
+</form>
+</section>
+<section class="card">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2 style="margin:0">Pedidos guardados</h2><button class="danger" id="deleteAll">Borrar todos</button></div>
+<div id="orders"></div>
+</section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const product=$('product'),size=$('size'),quantity=$('quantity'),images=$('images'),preview=$('preview');
+let imageData=[];
+const catalog={
+'Tarjetas':{sizes:['9 x 5 cm','9 x 10 cm'],qty:['1.000','2.000','3.000','5.000']},
+'Etiquetas':{sizes:['9 x 5 cm','9 x 10 cm'],qty:['1.000','2.000','3.000','5.000']},
+'Talonario Full Color':{sizes:['11 x 17 cm','11 x 8,5 cm'],qtyMap:{'11 x 17 cm':['20','25','50','100'],'11 x 8,5 cm':['40','50','100']}},
+'Talonario Blanco y Negro':{sizes:['11 x 17 cm','11 x 8,5 cm'],qtyMap:{'11 x 17 cm':['20','25','50','100'],'11 x 8,5 cm':['40','50','100']}},
+'Trabajo especial':{sizes:['Libre'],qty:['Libre']}
+};
+function fill(select,values){select.innerHTML='<option value="">Seleccionar...</option>'+values.map(v=>`<option>${v}</option>`).join('')}
+product.addEventListener('change',()=>{
+ const c=catalog[product.value]; fill(size,c?c.sizes:[]); fill(quantity,c?.qty||[]);
+ if(product.value==='Trabajo especial'){size.required=false;quantity.required=false;size.value='Libre';quantity.value='Libre'}
+ else{size.required=true;quantity.required=true}
+});
+size.addEventListener('change',()=>{
+ const c=catalog[product.value];
+ if(c?.qtyMap)fill(quantity,c.qtyMap[size.value]||[]);
+});
+images.addEventListener('change',()=>{
+ imageData=[];preview.innerHTML='';
+ [...images.files].slice(0,10).forEach(file=>{
+  const reader=new FileReader();reader.onload=e=>{imageData.push(e.target.result);const img=document.createElement('img');img.src=e.target.result;img.className='thumb';preview.appendChild(img)};reader.readAsDataURL(file);
+ });
+});
+function getOrders(){return JSON.parse(localStorage.getItem('grafica_orders')||'[]')}
+function setOrders(x){localStorage.setItem('grafica_orders',JSON.stringify(x))}
+function render(){
+ const list=$('orders'),orders=getOrders();list.innerHTML='';
+ if(!orders.length){list.innerHTML='<div class="empty">Todavía no hay pedidos guardados.</div>';return}
+ orders.slice().reverse().forEach(o=>{
+  const el=document.createElement('div');el.className='order';
+  el.innerHTML=`<div class="order-top"><strong>#${o.id}</strong><span class="pill">${o.status}</span></div>
+  <h3>${escapeHtml(o.name)} · ${escapeHtml(o.product)}</h3>
+  <p>${escapeHtml(o.size)} · ${escapeHtml(o.quantity)} · $${Number(o.price||0).toLocaleString('es-AR')}</p>
+  <p>${escapeHtml(o.description||'Sin descripción')}</p>
+  <p class="small">${o.date}</p>
+  <div class="actions">
+  <button class="secondary" onclick="advance('${o.id}')">Cambiar estado</button>
+  <button class="secondary" onclick="shareOrder('${o.id}')">Compartir</button>
+  <button class="danger" onclick="removeOrder('${o.id}')">Eliminar</button></div>`;
+  list.appendChild(el);
+ });
+}
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+$('orderForm').addEventListener('submit',e=>{
+ e.preventDefault();
+ const orders=getOrders();const next=(Math.max(0,...orders.map(o=>Number(o.id)))+1).toString().padStart(4,'0');
+ const o={id:next,product:product.value,size:size.value,quantity:quantity.value,price:$('price').value,name:$('name').value,description:$('description').value,whatsapp:$('whatsapp').value,social:$('social').value,location:$('location').value,images:imageData,status:'Pendiente',date:new Date().toLocaleString('es-AR')};
+ orders.push(o);setOrders(orders);alert('Pedido #'+next+' guardado');$('orderForm').reset();size.innerHTML='<option value="">Seleccionar...</option>';quantity.innerHTML='<option value="">Seleccionar...</option>';preview.innerHTML='';imageData=[];render();
+});
+$('clearBtn').onclick=()=>{$('orderForm').reset();size.innerHTML='<option value="">Seleccionar...</option>';quantity.innerHTML='<option value="">Seleccionar...</option>';preview.innerHTML='';imageData=[]};
+$('deleteAll').onclick=()=>{if(confirm('¿Borrar todos los pedidos de este dispositivo?')){setOrders([]);render()}};
+function advance(id){const statuses=['Pendiente','Diseño','Producción','Terminado','Entregado'];const orders=getOrders();const o=orders.find(x=>x.id===id);o.status=statuses[(statuses.indexOf(o.status)+1)%statuses.length];setOrders(orders);render()}
+function removeOrder(id){if(confirm('¿Eliminar este pedido?')){setOrders(getOrders().filter(o=>o.id!==id));render()}}
+function shareOrder(id){const o=getOrders().find(x=>x.id===id);const text=`PEDIDO #${o.id}\nProducto: ${o.product}\nMedida: ${o.size}\nCantidad: ${o.quantity}\nPrecio: $${o.price}\nNombre: ${o.name}\nDescripción: ${o.description}\nWhatsApp: ${o.whatsapp}\nRedes: ${o.social}\nUbicación: ${o.location}\nEstado: ${o.status}`;if(navigator.share)navigator.share({title:'Pedido #'+o.id,text});else navigator.clipboard.writeText(text).then(()=>alert('Ficha copiada para compartir'))}
+render();
+
+// Registro del Service Worker: hace que la app funcione sin internet una vez instalada
+if('serviceWorker' in navigator){
+ window.addEventListener('load',()=>{
+  navigator.serviceWorker.register('sw.js').catch(err=>console.error('Error registrando SW:',err));
+ });
+}
+</script>
+</body>
+</html>
