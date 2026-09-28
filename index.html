@@ -21,6 +21,7 @@ input,select,textarea{width:100%;padding:12px;border:1px solid #d8d2e7;border-ra
 textarea{min-height:90px;resize:vertical}.full{grid-column:1/-1}
 button{border:0;border-radius:11px;padding:12px 15px;font-weight:700;cursor:pointer;font-size:14px}
 .primary{background:var(--primary);color:#fff}.secondary{background:#eee9fb;color:var(--primary)}.danger{background:#ffe8e8;color:#a40000}
+.primary:disabled{opacity:.6;cursor:not-allowed}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 .hidden{display:none}.small{font-size:12px;color:var(--muted)}
 .order{border:1px solid var(--border);border-radius:12px;padding:13px;margin-top:10px;background:#fff}
@@ -28,11 +29,15 @@ button{border:0;border-radius:11px;padding:12px 15px;font-weight:700;cursor:poin
 .order h3{margin:4px 0;font-size:15px}.order p{margin:4px 0;font-size:13px;color:#555}
 .thumb{width:70px;height:70px;object-fit:cover;border-radius:8px;margin:5px 5px 0 0;border:1px solid var(--border)}
 .empty{text-align:center;color:var(--muted);padding:20px}
+#status{text-align:center;font-size:12px;color:var(--muted);padding:6px}
+#status.offline{background:#fff3cd;color:#7a5b00}
+#status.online{background:#e6f7ec;color:#0a6b2f}
 @media(max-width:480px){.grid{grid-template-columns:1fr}.full{grid-column:auto}}
 </style>
 </head>
 <body>
-<header><h1>Pedidos Gráfica</h1><p>App local · funciona sin internet</p></header>
+<header><h1>Pedidos Gráfica</h1><p>Funciona con o sin internet · sincroniza con la nube</p></header>
+<div id="status">Conectando...</div>
 <main>
 <section class="card">
 <h2>Nuevo pedido</h2>
@@ -47,23 +52,50 @@ button{border:0;border-radius:11px;padding:12px 15px;font-weight:700;cursor:poin
 <div><label>Precio ($)</label><input id="price" type="number" min="0" step="0.01" placeholder="0"></div>
 <div><label>Nombre</label><input id="name" required placeholder="Nombre del cliente"></div>
 <div class="full"><label>Descripción</label><textarea id="description" placeholder="Colores, diseño, papel, terminación, etc."></textarea></div>
-<div class="full"><label>Imágenes</label><input id="images" type="file" accept="image/*" multiple><div id="preview"></div></div>
+<div class="full"><label>Imágenes</label><input id="images" type="file" accept="image/*" multiple><div id="preview"></div>
+<p class="small">Máximo 2 imágenes livianas por pedido (límite de tamaño de Firestore).</p></div>
 <div><label>WhatsApp</label><input id="whatsapp" placeholder="11 1234 5678"></div>
 <div><label>Redes sociales</label><input id="social" placeholder="@usuario / Instagram"></div>
 <div class="full"><label>Ubicación</label><input id="location" placeholder="Feria, pasillo, puesto, fila, calle, local..."></div>
 </div>
-<div class="actions"><button class="primary" type="submit">Guardar pedido</button><button class="secondary" type="button" id="clearBtn">Limpiar</button></div>
+<div class="actions"><button class="primary" type="submit" id="saveBtn">Guardar pedido</button><button class="secondary" type="button" id="clearBtn">Limpiar</button></div>
 </form>
 </section>
 <section class="card">
 <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2 style="margin:0">Pedidos guardados</h2><button class="danger" id="deleteAll">Borrar todos</button></div>
-<div id="orders"></div>
+<div id="orders"><div class="empty">Cargando pedidos...</div></div>
 </section>
 </main>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyAgJV4CeHf2ChBYDB2n7mloU_VmAFoXGKA",
+  authDomain: "pedidos-56a9d.firebaseapp.com",
+  projectId: "pedidos-56a9d",
+  storageBucket: "pedidos-56a9d.firebasestorage.app",
+  messagingSenderId: "946629120687",
+  appId: "1:946629120687:web:b42bd1b35556612f037a5a"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const ordersCol = db.collection('pedidos');
+
+// Persistencia offline: cachea Firestore en el celu para poder usar la app sin internet
+db.enablePersistence({synchronizeTabs:true}).catch(err=>{
+ if(err.code==='failed-precondition') console.warn('Persistencia offline: ya está habilitada en otra pestaña.');
+ else if(err.code==='unimplemented') console.warn('Este navegador no soporta persistencia offline.');
+ else console.error(err);
+});
+</script>
+
 <script>
 const $=id=>document.getElementById(id);
-const product=$('product'),size=$('size'),quantity=$('quantity'),images=$('images'),preview=$('preview');
+const product=$('product'),size=$('size'),quantity=$('quantity'),images=$('images'),preview=$('preview'),saveBtn=$('saveBtn'),statusBar=$('status');
 let imageData=[];
+let ordersCache=[];
+
 const catalog={
 'Tarjetas':{sizes:['9 x 5 cm','9 x 10 cm'],qty:['1.000','2.000','3.000','5.000']},
 'Etiquetas':{sizes:['9 x 5 cm','9 x 10 cm'],qty:['1.000','2.000','3.000','5.000']},
@@ -83,44 +115,108 @@ size.addEventListener('change',()=>{
 });
 images.addEventListener('change',()=>{
  imageData=[];preview.innerHTML='';
- [...images.files].slice(0,10).forEach(file=>{
+ [...images.files].slice(0,2).forEach(file=>{
   const reader=new FileReader();reader.onload=e=>{imageData.push(e.target.result);const img=document.createElement('img');img.src=e.target.result;img.className='thumb';preview.appendChild(img)};reader.readAsDataURL(file);
  });
 });
-function getOrders(){return JSON.parse(localStorage.getItem('grafica_orders')||'[]')}
-function setOrders(x){localStorage.setItem('grafica_orders',JSON.stringify(x))}
+
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+
 function render(){
- const list=$('orders'),orders=getOrders();list.innerHTML='';
- if(!orders.length){list.innerHTML='<div class="empty">Todavía no hay pedidos guardados.</div>';return}
- orders.slice().reverse().forEach(o=>{
+ const list=$('orders');list.innerHTML='';
+ if(!ordersCache.length){list.innerHTML='<div class="empty">Todavía no hay pedidos guardados.</div>';return}
+ ordersCache.forEach(o=>{
   const el=document.createElement('div');el.className='order';
-  el.innerHTML=`<div class="order-top"><strong>#${o.id}</strong><span class="pill">${o.status}</span></div>
+  el.innerHTML=`<div class="order-top"><strong>#${o.numero}</strong><span class="pill">${o.status}</span></div>
   <h3>${escapeHtml(o.name)} · ${escapeHtml(o.product)}</h3>
   <p>${escapeHtml(o.size)} · ${escapeHtml(o.quantity)} · $${Number(o.price||0).toLocaleString('es-AR')}</p>
   <p>${escapeHtml(o.description||'Sin descripción')}</p>
   <p class="small">${o.date}</p>
   <div class="actions">
-  <button class="secondary" onclick="advance('${o.id}')">Cambiar estado</button>
-  <button class="secondary" onclick="shareOrder('${o.id}')">Compartir</button>
-  <button class="danger" onclick="removeOrder('${o.id}')">Eliminar</button></div>`;
+  <button class="secondary" onclick="advance('${o.docId}')">Cambiar estado</button>
+  <button class="secondary" onclick="shareOrder('${o.docId}')">Compartir</button>
+  <button class="danger" onclick="removeOrder('${o.docId}')">Eliminar</button></div>`;
   list.appendChild(el);
  });
 }
-function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-$('orderForm').addEventListener('submit',e=>{
- e.preventDefault();
- const orders=getOrders();const next=(Math.max(0,...orders.map(o=>Number(o.id)))+1).toString().padStart(4,'0');
- const o={id:next,product:product.value,size:size.value,quantity:quantity.value,price:$('price').value,name:$('name').value,description:$('description').value,whatsapp:$('whatsapp').value,social:$('social').value,location:$('location').value,images:imageData,status:'Pendiente',date:new Date().toLocaleString('es-AR')};
- orders.push(o);setOrders(orders);alert('Pedido #'+next+' guardado');$('orderForm').reset();size.innerHTML='<option value="">Seleccionar...</option>';quantity.innerHTML='<option value="">Seleccionar...</option>';preview.innerHTML='';imageData=[];render();
-});
-$('clearBtn').onclick=()=>{$('orderForm').reset();size.innerHTML='<option value="">Seleccionar...</option>';quantity.innerHTML='<option value="">Seleccionar...</option>';preview.innerHTML='';imageData=[]};
-$('deleteAll').onclick=()=>{if(confirm('¿Borrar todos los pedidos de este dispositivo?')){setOrders([]);render()}};
-function advance(id){const statuses=['Pendiente','Diseño','Producción','Terminado','Entregado'];const orders=getOrders();const o=orders.find(x=>x.id===id);o.status=statuses[(statuses.indexOf(o.status)+1)%statuses.length];setOrders(orders);render()}
-function removeOrder(id){if(confirm('¿Eliminar este pedido?')){setOrders(getOrders().filter(o=>o.id!==id));render()}}
-function shareOrder(id){const o=getOrders().find(x=>x.id===id);const text=`PEDIDO #${o.id}\nProducto: ${o.product}\nMedida: ${o.size}\nCantidad: ${o.quantity}\nPrecio: $${o.price}\nNombre: ${o.name}\nDescripción: ${o.description}\nWhatsApp: ${o.whatsapp}\nRedes: ${o.social}\nUbicación: ${o.location}\nEstado: ${o.status}`;if(navigator.share)navigator.share({title:'Pedido #'+o.id,text});else navigator.clipboard.writeText(text).then(()=>alert('Ficha copiada para compartir'))}
-render();
 
-// Registro del Service Worker: hace que la app funcione sin internet una vez instalada
+function updateConnBadge(){
+ statusBar.textContent = navigator.onLine
+  ? `En línea · ${ordersCache.length} pedido(s) · sincronizado con la nube`
+  : `Sin conexión · ${ordersCache.length} pedido(s) guardados en este celu, se sincronizan cuando vuelva internet`;
+ statusBar.className = navigator.onLine ? 'online' : 'offline';
+}
+window.addEventListener('online', updateConnBadge);
+window.addEventListener('offline', updateConnBadge);
+
+ordersCol.orderBy('createdAt','desc').onSnapshot({includeMetadataChanges:true}, snapshot=>{
+ ordersCache=snapshot.docs.map(doc=>({docId:doc.id,...doc.data()}));
+ updateConnBadge();
+ render();
+},err=>{
+ console.error(err);
+ statusBar.textContent='Error de conexión con Firebase. Revisá la config o las reglas de Firestore.';
+ statusBar.className='offline';
+});
+
+$('orderForm').addEventListener('submit', async e=>{
+ e.preventDefault();
+ saveBtn.disabled=true; saveBtn.textContent='Guardando...';
+ try{
+  const numero=(ordersCache.reduce((max,o)=>Math.max(max,Number(o.numero)||0),0)+1).toString().padStart(4,'0');
+  const o={
+   numero,
+   product:product.value, size:size.value, quantity:quantity.value,
+   price:$('price').value, name:$('name').value, description:$('description').value,
+   whatsapp:$('whatsapp').value, social:$('social').value, location:$('location').value,
+   images:imageData, status:'Pendiente',
+   date:new Date().toLocaleString('es-AR'),
+   createdAt:firebase.firestore.FieldValue.serverTimestamp()
+  };
+  await ordersCol.add(o); // si no hay internet, Firestore lo guarda local y lo manda solo después
+  $('orderForm').reset();
+  size.innerHTML='<option value="">Seleccionar...</option>';
+  quantity.innerHTML='<option value="">Seleccionar...</option>';
+  preview.innerHTML=''; imageData=[];
+ }catch(err){
+  console.error(err);
+  alert('Error al guardar el pedido: '+err.message);
+ }finally{
+  saveBtn.disabled=false; saveBtn.textContent='Guardar pedido';
+ }
+});
+
+$('clearBtn').onclick=()=>{$('orderForm').reset();size.innerHTML='<option value="">Seleccionar...</option>';quantity.innerHTML='<option value="">Seleccionar...</option>';preview.innerHTML='';imageData=[]};
+
+$('deleteAll').onclick=async ()=>{
+ if(!confirm('¿Borrar todos los pedidos de la base de datos? Esto los borra para todos los que usen esta app.')) return;
+ const batch=db.batch();
+ const snap=await ordersCol.get();
+ snap.forEach(doc=>batch.delete(doc.ref));
+ await batch.commit();
+};
+
+async function advance(docId){
+ const statuses=['Pendiente','Diseño','Producción','Terminado','Entregado'];
+ const o=ordersCache.find(x=>x.docId===docId);
+ if(!o) return;
+ const next=statuses[(statuses.indexOf(o.status)+1)%statuses.length];
+ await ordersCol.doc(docId).update({status:next});
+}
+
+async function removeOrder(docId){
+ if(confirm('¿Eliminar este pedido?')) await ordersCol.doc(docId).delete();
+}
+
+function shareOrder(docId){
+ const o=ordersCache.find(x=>x.docId===docId);
+ if(!o) return;
+ const text=`PEDIDO #${o.numero}\nProducto: ${o.product}\nMedida: ${o.size}\nCantidad: ${o.quantity}\nPrecio: $${o.price}\nNombre: ${o.name}\nDescripción: ${o.description}\nWhatsApp: ${o.whatsapp}\nRedes: ${o.social}\nUbicación: ${o.location}\nEstado: ${o.status}`;
+ if(navigator.share) navigator.share({title:'Pedido #'+o.numero,text});
+ else navigator.clipboard.writeText(text).then(()=>alert('Ficha copiada para compartir'));
+}
+
+// Registro del Service Worker: hace que la interfaz (HTML/CSS/JS) abra sin internet
 if('serviceWorker' in navigator){
  window.addEventListener('load',()=>{
   navigator.serviceWorker.register('sw.js').catch(err=>console.error('Error registrando SW:',err));
