@@ -113,11 +113,46 @@ size.addEventListener('change',()=>{
  const c=catalog[product.value];
  if(c?.qtyMap)fill(quantity,c.qtyMap[size.value]||[]);
 });
-images.addEventListener('change',()=>{
- imageData=[];preview.innerHTML='';
- [...images.files].slice(0,2).forEach(file=>{
-  const reader=new FileReader();reader.onload=e=>{imageData.push(e.target.result);const img=document.createElement('img');img.src=e.target.result;img.className='thumb';preview.appendChild(img)};reader.readAsDataURL(file);
+// Achica y comprime la imagen con un canvas para que ocupe poco espacio en Firestore
+function compressImage(file, maxWidth=700, quality=0.5){
+ return new Promise((resolve,reject)=>{
+  const reader=new FileReader();
+  reader.onload=e=>{
+   const img=new Image();
+   img.onload=()=>{
+    const scale=Math.min(1, maxWidth/img.width);
+    const canvas=document.createElement('canvas');
+    canvas.width=img.width*scale; canvas.height=img.height*scale;
+    const ctx=canvas.getContext('2d');
+    ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    resolve(canvas.toDataURL('image/jpeg', quality));
+   };
+   img.onerror=reject;
+   img.src=e.target.result;
+  };
+  reader.onerror=reject;
+  reader.readAsDataURL(file);
  });
+}
+
+images.addEventListener('change', async ()=>{
+ imageData=[];preview.innerHTML='';
+ preview.textContent='Procesando imágenes...';
+ const files=[...images.files].slice(0,2);
+ const compressed=[];
+ for(const file of files){
+  try{ compressed.push(await compressImage(file)); }
+  catch(err){ console.error('Error comprimiendo imagen:',err); }
+ }
+ preview.innerHTML='';
+ imageData=compressed;
+ imageData.forEach(src=>{
+  const img=document.createElement('img');img.src=src;img.className='thumb';preview.appendChild(img);
+ });
+ const totalKB=Math.round(imageData.join('').length/1024);
+ if(totalKB>700){
+  preview.insertAdjacentHTML('beforeend', `<p class="small" style="color:#a40000">Las imágenes pesan ${totalKB}KB, puede que no entren en el pedido. Probá con menos fotos o de menor resolución.</p>`);
+ }
 });
 
 function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -161,6 +196,11 @@ ordersCol.orderBy('createdAt','desc').onSnapshot({includeMetadataChanges:true}, 
 
 $('orderForm').addEventListener('submit', async e=>{
  e.preventDefault();
+ const imgSizeKB=Math.round(imageData.join('').length/1024);
+ if(imgSizeKB>850){
+  alert('Las imágenes son muy pesadas para este pedido ('+imgSizeKB+'KB). Sacá una foto o volvé a elegirlas para que se compriman de nuevo.');
+  return;
+ }
  saveBtn.disabled=true; saveBtn.textContent='Guardando...';
  try{
   const numero=(ordersCache.reduce((max,o)=>Math.max(max,Number(o.numero)||0),0)+1).toString().padStart(4,'0');
