@@ -32,6 +32,15 @@ button{border:0;border-radius:11px;padding:12px 15px;font-weight:700;cursor:poin
 #status{text-align:center;font-size:12px;color:var(--muted);padding:6px}
 #status.offline{background:#fff3cd;color:#7a5b00}
 #status.online{background:#e6f7ec;color:#0a6b2f}
+.modal-bg{position:fixed;inset:0;background:#000a;display:flex;align-items:flex-end;justify-content:center;z-index:10}
+.modal-bg.hidden{display:none}
+.modal{background:#fff;border-radius:18px 18px 0 0;max-width:720px;width:100%;max-height:88vh;overflow-y:auto;padding:18px}
+.modal h2{display:flex;justify-content:space-between;align-items:center}
+.modal .close{background:#eee9fb;color:var(--primary);border-radius:50%;width:34px;height:34px;font-size:18px;line-height:1}
+.detail-row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px}
+.detail-row span:first-child{color:var(--muted);font-weight:700}
+.detail-imgs{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.detail-imgs img{width:100%;max-width:320px;border-radius:12px;border:1px solid var(--border)}
 @media(max-width:480px){.grid{grid-template-columns:1fr}.full{grid-column:auto}}
 </style>
 </head>
@@ -64,8 +73,7 @@ button{border:0;border-radius:11px;padding:12px 15px;font-weight:700;cursor:poin
 <section class="card">
 <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2 style="margin:0">Pedidos guardados</h2><button class="danger" id="deleteAll">Borrar todos</button></div>
 <div id="orders"><div class="empty">Cargando pedidos...</div></div>
-</section>
-</main>
+
 
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
@@ -168,6 +176,7 @@ function render(){
   <p>${escapeHtml(o.description||'Sin descripción')}</p>
   <p class="small">${o.date}</p>
   <div class="actions">
+  <button class="secondary" onclick="viewOrder('${o.docId}')">Ver completo</button>
   <button class="secondary" onclick="advance('${o.docId}')">Cambiar estado</button>
   <button class="secondary" onclick="shareOrder('${o.docId}')">Compartir</button>
   <button class="danger" onclick="removeOrder('${o.docId}')">Eliminar</button></div>`;
@@ -235,6 +244,29 @@ $('deleteAll').onclick=async ()=>{
  snap.forEach(doc=>batch.delete(doc.ref));
  await batch.commit();
 };
+
+function viewOrder(docId){
+ const o=ordersCache.find(x=>x.docId===docId);
+ if(!o) return;
+ const rows=[
+  ['Número', o.numero], ['Estado', o.status], ['Producto', o.product],
+  ['Medida', o.size], ['Cantidad', o.quantity],
+  ['Precio', '$'+Number(o.price||0).toLocaleString('es-AR')],
+  ['Cliente', o.name], ['WhatsApp', o.whatsapp||'—'], ['Redes', o.social||'—'],
+  ['Ubicación', o.location||'—'], ['Fecha', o.date]
+ ];
+ let html = rows.map(([k,v])=>`<div class="detail-row"><span>${escapeHtml(k)}</span><span>${escapeHtml(v)}</span></div>`).join('');
+ html += `<div class="detail-row" style="flex-direction:column;border-bottom:none"><span>Descripción</span><p style="margin:6px 0 0">${escapeHtml(o.description||'Sin descripción')}</p></div>`;
+ if(o.images && o.images.length){
+  html += `<div class="detail-imgs">${o.images.map(src=>`<img src="${src}">`).join('')}</div>`;
+ } else {
+  html += `<p class="small" style="margin-top:10px">Este pedido no tiene fotos.</p>`;
+ }
+ $('modalBody').innerHTML = html;
+ $('modalBg').classList.remove('hidden');
+}
+$('modalClose').onclick = ()=> $('modalBg').classList.add('hidden');
+$('modalBg').onclick = (e)=>{ if(e.target.id==='modalBg') $('modalBg').classList.add('hidden'); };
 
 async function advance(docId){
  const statuses=['Pendiente','Diseño','Producción','Terminado','Entregado'];
