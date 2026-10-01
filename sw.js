@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pedidos-grafica-v4';
+const CACHE_NAME = 'pedidos-grafica-v5';
 const FILES_TO_CACHE = [
   './',
   './index.html',
